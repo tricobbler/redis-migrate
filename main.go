@@ -3,8 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/go-redis/redis"
 	"strings"
+	"time"
+
+	"github.com/go-redis/redis"
 )
 
 var sourceAddr = flag.String("saddr", "", "Input source redis address")
@@ -53,12 +55,27 @@ func main() {
 			switch keyType {
 			case "string":
 				{
-					keyValue := targetClient.Get(keyList[m+index]).Val()
-					pp.Set(keyList[m+index], keyValue, -1)
+					var key = keyList[m+index]
+					keyValue := sourceClient.Get(key).Val()
+
+					ttl := sourceClient.TTL(key).Val().Seconds()
+					if ttl > -1 {
+						targetClient.Set(key, keyValue, time.Duration(ttl*1000*1000*1000))
+					} else {
+						pp.Set(key, keyValue, -1)
+					}
 				}
 			case "list":
 				{
-					//targetClient.l
+					var i int64
+					var length = sourceClient.LLen(keyList[m+index]).Val()
+					for i = length - 1; i >= 0; i-- {
+						result, err := sourceClient.LIndex(keyList[m+index], i).Result()
+						if err != nil {
+							break
+						}
+						pp.LPush(keyList[m+index], result)
+					}
 				}
 			case "set":
 				{
@@ -69,10 +86,10 @@ func main() {
 				}
 			case "zset":
 				{
-				 zResult,_:= sourceClient.ZRangeWithScores(keyList[m+index],0,-1).Result()
-				 for _,b:=range zResult{
-				 	pp.ZAdd(keyList[m+index],redis.Z{Member: b.Member,Score: b.Score})
-				 }
+					zResult, _ := sourceClient.ZRangeWithScores(keyList[m+index], 0, -1).Result()
+					for _, b := range zResult {
+						pp.ZAdd(keyList[m+index], redis.Z{Member: b.Member, Score: b.Score})
+					}
 				}
 			case "hash":
 				{
